@@ -3,7 +3,7 @@
 	"name": "dowss",
 	"main": "src/index.js",
 	"compatibility_date": "2025-06-17",
-	"keep_vars": ture,
+	"keep_vars": true,
 	"preview_urls": false,
 	"migrations": [
 		{
