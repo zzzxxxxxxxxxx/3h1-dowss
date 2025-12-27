@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "dowss",
+	"name": "do",
 	"main": "src/index.js",
 	"compatibility_date": "2025-06-17",
 	"keep_vars": true,
