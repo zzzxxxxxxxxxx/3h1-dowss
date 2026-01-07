@@ -23,15 +23,38 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: Replace UUID4 and PASSWORD in wrangler.jsonc
+      - name: Validate and Replace secrets in wrangler.jsonc
         run: |
-          # 读取wrangler.jsonc并替换UUID4和PASSWORD
+          # 检查必需的secrets
+          if [ -z "${{ secrets.VLESS_UUID }}" ]; then
+            echo "❌ Error: VLESS_UUID secret is not set"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "❌ Error: CLOUDFLARE_ACCOUNT_ID secret is not set"
+            exit 1
+          fi
+          
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "❌ Error: CLOUDFLARE_API_TOKEN secret is not set"
+            exit 1
+          fi
+          
+          # 替换UUID4
           sed -i 's/"UUID4": "[^"]*"/"UUID4": "${{ secrets.VLESS_UUID }}"/g' wrangler.jsonc
-          sed -i 's/"PASSWORD": "[^"]*"/"PASSWORD": "${{ secrets.TROJAN_PASSWORD }}"/g' wrangler.jsonc
+          
+          # 如果PASSWORD为空，则删除PASSWORD那一行；否则替换PASSWORD
+          if [ -z "${{ secrets.TROJAN_PASSWORD }}" ]; then
+            echo "PASSWORD secret is not set, removing PASSWORD line from wrangler.jsonc"
+            sed -i '/"PASSWORD": "[^"]*",/d' wrangler.jsonc
+          else
+            sed -i 's/"PASSWORD": "[^"]*"/"PASSWORD": "${{ secrets.TROJAN_PASSWORD }}"/g' wrangler.jsonc
+          fi
           
           # 验证替换
-          echo "替换后的wrangler.jsonc内容（UUID和PASSWORD部分）："
-          grep -A1 "UUID4\|PASSWORD" wrangler.jsonc | head -4
+          echo "✅ 配置替换完成，当前vars部分："
+          grep -A 10 '"vars"' wrangler.jsonc | head -15
       
       - name: Deploy to Cloudflare Workers
         env:
