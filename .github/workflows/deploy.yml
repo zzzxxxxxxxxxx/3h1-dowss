@@ -1,0 +1,48 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Replace UUID4 and PASSWORD in wrangler.jsonc
+        run: |
+          # 读取wrangler.jsonc并替换UUID4和PASSWORD
+          sed -i 's/"UUID4": "[^"]*"/"UUID4": "${{ secrets.VLESS_UUID }}"/g' wrangler.jsonc
+          sed -i 's/"PASSWORD": "[^"]*"/"PASSWORD": "${{ secrets.TROJAN_PASSWORD }}"/g' wrangler.jsonc
+          
+          # 验证替换
+          echo "替换后的wrangler.jsonc内容（UUID和PASSWORD部分）："
+          grep -A1 "UUID4\|PASSWORD" wrangler.jsonc | head -4
+      
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
+      
+      - name: Deployment Success
+        if: success()
+        run: echo "✅ Successfully deployed to Cloudflare Workers"
+      
+      - name: Deployment Failed
+        if: failure()
+        run: echo "❌ Deployment failed" && exit 1
