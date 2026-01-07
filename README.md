@@ -35,7 +35,7 @@ npx wrangler deploy
 |-----------|------|
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare账户ID，在 https://dash.cloudflare.com/profile/api-tokens 获取 |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token，需要具有"编辑Workers"权限 |
-| `VLESS_UUID` | VLESS协议的UUID（必需） |
+| `VLESS_UUID` | VLESS协议的UUID（必需，部署时自动替换wrangler.jsonc内UUID4变量值） |
 | `TROJAN_PASSWORD` | Trojan协议的密码（可选，不设置时代码使用UUID作为密码） |
 
 2. 配置完成后，每次推送代码到main分支都会自动部署。
