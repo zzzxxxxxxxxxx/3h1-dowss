@@ -4,11 +4,11 @@
 
 ## 一、关于部署
 
-- 使用 Wrangler CLI 部署
+### 1. 手动部署（Wrangler CLI）
 
-  先将全部代码下载或git clone命令下载到本地电脑中，然后：
+先将全部代码下载或git clone命令下载到本地电脑中，然后：
 
-```
+```bash
 # 安装依赖
 npm install
 
@@ -16,10 +16,34 @@ npm install
 npx wrangler login
 
 # 部署到cloudflare workers中
-wrangler deploy
+npx wrangler deploy
 ```
 
-- 其他部署途径，没有尝试过。
+### 2. 自动部署（GitHub Actions）
+
+本项目已配置GitHub Actions工作流，支持自动部署到Cloudflare Workers。
+
+**部署流程：**
+- 推送代码到 `main` 分支时自动触发部署
+- 或在GitHub Actions选项卡手动触发部署
+
+**配置步骤：**
+
+1. 在GitHub Repository中添加以下Secrets（Settings → Secrets and variables → Actions → New repository secret）：
+
+| Secret名称 | 说明 |
+|-----------|------|
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare账户ID，在 https://dash.cloudflare.com/profile/api-tokens 获取 |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token，需要具有"编辑Workers"权限 |
+| `VLESS_UUID` | VLESS协议的UUID（必需） |
+| `TROJAN_PASSWORD` | Trojan协议的密码（可选，不设置时代码使用UUID作为密码） |
+
+2. 配置完成后，每次推送代码到main分支都会自动部署。
+
+
+### 3. 其他部署途径
+
+其他部署途径，没有尝试过。
 
 ## 二、修改变量
 
