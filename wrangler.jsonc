@@ -49,6 +49,6 @@
 		 * 设置方法
 		 * REGION: 放置 Durable Objects 的区域的选择，可选值：wnam, enam, sam, weur, eeur, apac, oc, afr, me
 		 */
-		"REGION": "wnam",
+		"REGION": "apac",
 	}
 }
