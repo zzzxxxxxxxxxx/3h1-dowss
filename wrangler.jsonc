@@ -30,7 +30,7 @@
 		/***
 		 * 下面的PYIP，指的是PROXYIP
 		 */
-		"PYIP": "proxyip.us.cmliussss.net:443",
+		"PYIP": "proxyip.sg.cmliussss.net:443",
 		/*
 		 * 下面的UUID4和PASSWORD，要改成你自己的
 		 * vless => UUID4, 没有设置就使用代码内置的 uuid
