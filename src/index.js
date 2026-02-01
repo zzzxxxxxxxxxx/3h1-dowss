@@ -64,19 +64,15 @@ function splitHostPort(address) {
 function parseSse1vHeader(buffer, userIDUint8Array) {
 	if (!buffer || buffer.byteLength < 24) return { hasError: true, message: "Too short" };
 	const view = new Uint8Array(buffer);
-	
 	for (let i = 0; i < 16; ++i) {
 		if (view[i + 1] !== userIDUint8Array[i]) {
 			return { hasError: true, message: "Unauthorized UUID" };
 		}
 	}
-	
 	const optLength = view[17];
 	let pos = 18 + optLength + 1;
-
 	const port = (view[pos] << 8) | view[pos + 1];
 	pos += 2;
-
 	const addrType = view[pos++];
 	let address = "";
 	if (addrType === 1) {
@@ -94,21 +90,20 @@ function parseSse1vHeader(buffer, userIDUint8Array) {
 	} else {
 		return { hasError: true, message: `Invalid address type ${addrType}` };
 	}
-
 	return {
 		hasError: false,
 		addressRemote: address,
 		portRemote: port,
 		rawClientData: buffer.slice(pos),
 		addressType: addrType,
-		responseHeader: new Uint8Array([view[0], 0]), 
+		responseHeader: new Uint8Array([view[0], 0]),
 	};
 }
 
 function makeReadableWebSocketStream(ws, earlyDataHeader, log) {
 	let cancelled = false;
 	const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
-	const stream = new ReadableStream({
+	return new ReadableStream({
 		start(controller) {
 			ws.addEventListener("message", (e) => {
 				if (cancelled) return;
@@ -132,13 +127,11 @@ function makeReadableWebSocketStream(ws, earlyDataHeader, log) {
 			safeCloseWebSocket(ws);
 		},
 	});
-	return stream;
 }
 
 async function remoteSocketToWS(remoteSocket, ws, retry, responseHeader = null, log = null) {
 	let hasIncoming = false;
 	let firstChunk = responseHeader instanceof Uint8Array && responseHeader.length > 0;
-
 	await remoteSocket.readable
 		.pipeTo(
 			new WritableStream({
@@ -169,7 +162,6 @@ async function remoteSocketToWS(remoteSocket, ws, retry, responseHeader = null, 
 			console.error("remoteSocketToWS error:", e);
 			safeCloseWebSocket(ws);
 		});
-
 	if (!hasIncoming && retry) {
 		log && log("no data from remote, retrying via proxy");
 		retry();
@@ -181,24 +173,20 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 		const tcp = connect({ hostname: host, port });
 		remoteSocketWrapper.value = tcp;
 		log(`connected to ${host}:${port}`);
-		
 		const writer = tcp.writable.getWriter();
 		await writer.write(headerInfo?.rawClientData);
-		remoteSocketWrapper.writer = writer; 
-		
+		remoteSocketWrapper.writer = writer;
 		return tcp;
 	}
-
 	async function retry() {
 		const { hostname, port } = proxyInfo;
 		if (remoteSocketWrapper.writer) {
-			try { await remoteSocketWrapper.writer.releaseLock(); } catch(e) {}
+			try { await remoteSocketWrapper.writer.releaseLock(); } catch (e) { }
 		}
 		const tcp = await connectAndWrite(hostname, port);
 		tcp.closed.catch(() => { }).finally(() => safeCloseWebSocket(ws));
 		remoteSocketToWS(tcp, ws, null, headerInfo?.responseHeader, log);
 	}
-
 	const tcp = await connectAndWrite(headerInfo?.addressRemote, headerInfo?.portRemote);
 	remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
 }
@@ -226,9 +214,7 @@ export class WsDo extends DurableObject {
 		if (request.headers.get("Upgrade") !== "websocket") {
 			return new Response("Only WebSocket is supported", { status: 400 });
 		}
-
 		const userIDUint8Array = this.userIDUint8Array;
-
 		let pxyAddr = this.proxyAddress;
 		const url = new URL(request.url);
 		const pathname = url.pathname;
@@ -239,55 +225,50 @@ export class WsDo extends DurableObject {
 		}
 		const hostPort = splitHostPort(pxyAddr);
 		const proxyInfo = hostPort.host ? { hostname: hostPort.host, port: hostPort.port } : null;
-
 		const [clientSide, serverSide] = Object.values(new WebSocketPair());
 		serverSide.accept();
-
 		let address = "";
 		let portLog = "";
 		const log = (msg, data) => console.log(`[${address}${portLog}] ${msg}`, data || "");
-
 		const earlyProtoHeader = request.headers.get("sec-websocket-protocol") || "";
 		const inbound = makeReadableWebSocketStream(serverSide, earlyProtoHeader, log);
-
 		const remoteSocketWrapper = { value: null, writer: null };
-
 		inbound
 			.pipeTo(
 				new WritableStream({
 					async write(chunk, controller) {
 						if (remoteSocketWrapper.writer) {
-							await remoteSocketWrapper.writer.write(chunk);
+							try {
+								await remoteSocketWrapper.writer.write(chunk);
+							} catch (e) {
+								controller.error(e);
+							}
 							return;
 						}
-						
 						let headerInfo = parseSse1vHeader(chunk, userIDUint8Array);
-						
 						if (!headerInfo || headerInfo.hasError) {
 							return controller.error(`Header parse error: ${headerInfo?.message}`);
 						}
-
 						address = headerInfo?.addressRemote;
 						portLog = `-${(Math.random().toString(36) + "000000").slice(2, 8)} tcp`;
-
 						await handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, serverSide, log);
 					},
 					close() {
 						log("inbound stream closed");
 						if (remoteSocketWrapper.writer) {
-							try { remoteSocketWrapper.writer.releaseLock(); } catch(e) {}
+							try { remoteSocketWrapper.writer.releaseLock(); } catch (e) { }
 						}
 						if (remoteSocketWrapper.value) {
-							try { remoteSocketWrapper.value.close(); } catch(e) {}
+							try { remoteSocketWrapper.value.close(); } catch (e) { }
 						}
 					},
 					abort(reason) {
 						log("inbound stream aborted", reason);
 						if (remoteSocketWrapper.writer) {
-							try { remoteSocketWrapper.writer.releaseLock(); } catch(e) {}
+							try { remoteSocketWrapper.writer.releaseLock(); } catch (e) { }
 						}
 						if (remoteSocketWrapper.value) {
-							try { remoteSocketWrapper.value.close(); } catch(e) {}
+							try { remoteSocketWrapper.value.close(); } catch (e) { }
 						}
 					},
 				})
@@ -295,7 +276,6 @@ export class WsDo extends DurableObject {
 			.catch((e) => {
 				log("inbound pipe error", e);
 			});
-
 		return new Response(null, { status: 101, webSocket: clientSide });
 	}
 }
@@ -304,7 +284,6 @@ export default {
 	async fetch(request, env, ctx) {
 		const url = new URL(request.url);
 		const pathname = url.pathname;
-
 		if (request.headers.get("Upgrade") !== "websocket") {
 			if (pathname === "/") {
 				const redirectUrl = URLS[Math.floor(Math.random() * URLS.length)];
@@ -314,12 +293,10 @@ export default {
 			}
 			return new Response("404 Not Found", { status: 404 });
 		}
-
 		const doLocation = env.REGION || "wnam";
 		const name = `user-${doLocation}-${env.UUID4 ?? "c3deb827-585e-4137-98a4-2dd4058f9836"}`;
 		const id = env.WS_DO.idFromName(name);
 		const stub = env.WS_DO.get(id, { locationHint: doLocation });
-
 		return await stub.fetch(request);
 	},
 };
