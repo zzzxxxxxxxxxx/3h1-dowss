@@ -251,16 +251,11 @@ export class WsDo extends DurableObject {
 		const inbound = makeReadableWebSocketStream(serverSide, earlyProtoHeader, log);
 
 		const remoteSocketWrapper = { value: null, writer: null };
-		let udpWrite = null; 
 
 		inbound
 			.pipeTo(
 				new WritableStream({
 					async write(chunk, controller) {
-						if (udpWrite) {
-							return udpWrite(chunk);
-						}
-						
 						if (remoteSocketWrapper.writer) {
 							await remoteSocketWrapper.writer.write(chunk);
 							return;
