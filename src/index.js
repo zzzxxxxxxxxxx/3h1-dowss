@@ -211,11 +211,10 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 		return tcp;
 	}
 
-	// 代理重试：如果直连失败会走 proxy（proxyInfo 是 env.PYIP 分割出来的 hostname 和 port ）
+	// 代理重试：直连失败时走 ProxyIP，端口使用目标端口而非固定端口
 	async function retry() {
 		if (!proxyInfo) return;
-		const { hostname, port } = proxyInfo;
-		const tcp = await connectAndWrite(hostname, port);
+		const tcp = await connectAndWrite(proxyInfo.hostname, headerInfo?.portRemote);
 		tcp.closed.catch(() => { }).finally(() => safeCloseWebSocket(ws));
 		remoteSocketToWS(tcp, ws, null, headerInfo?.responseHeader, log);
 	}

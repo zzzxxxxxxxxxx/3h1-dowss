@@ -23,16 +23,13 @@ wrangler deploy
 
 ## 二、修改变量
 
-可以先部署，再到CF后台修改**变量和机密**。也可以部署前找到"wrangler.jsonc"里面 `vars`字段，修改里面的字段值。
+可以先部署，再到CF后台修改**变量和机密**。也可以部署前找到 `wrangler.toml` 里面 `[vars]` 字段，修改里面的字段值。
 
-| 名称          | 说明                                                         |
-| ------------- | ------------------------------------------------------------ |
-| PYIP          | 等价于PROXYIP                                                |
-| UUID4         | vless协议的userId                                            |
-| PASSWORD      | trojan协议的密码，可以不设置，使用vless协议的userId          |
-| ENABLE_SS     | 是否开启shadowsocks协议？总电闸，设置为false就关闭它，true就是开启。 |
-| ALLOWED_RULES | shadowsocks协议专属，小电闸。添加你所在公网IP或IP所在的CIDR(IP段)，cf会知道你的IP地址，不要想隐藏；只有你指定的IP地址才能使用，使用其它IP连接的禁用。支持IPv4、IPv6、IPv4 CIDR/IPv6 CIDR，默认是所有公网IP都能连接它；示例："192.168.1.100,192.168.100.0/24,2001:db8::1,2001:db8::/32"。 |
-| REGION        | 第一次部署实例化才生效，重新覆盖部署无效，可选：["wnam", "enam", "sam", "weur", "eeur", "apac", "oc", "afr", "me"]，你可以试一下，部署后，不要连接，再到cf后台修改该变量值，一旦连接成功，修改它无效，可能导致网速变慢。 |
+| 名称   | 说明                                                         |
+| ------ | ------------------------------------------------------------ |
+| PYIP   | PROXYIP 回退代理地址，直连失败时通过此 IP 中转。端口由目标地址决定，此处只需填 IP |
+| UUID4  | vless协议的userId                                            |
+| REGION | DO 放置区域，第一次部署实例化才生效，可选：wnam/enam/sam/weur/eeur/apac/oc/afr/me |
 
 ## 三、注意：
 
