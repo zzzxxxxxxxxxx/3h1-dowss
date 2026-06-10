@@ -1,4 +1,4 @@
-name = "dowss"
+name = "speedtest"
 main = "src/index.js"
 compatibility_date = "2026-01-20"
 preview_urls = false
