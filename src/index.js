@@ -178,6 +178,7 @@ async function remoteSocketToWS(remoteSocket, ws, retry, responseHeader = null, 
 			if (!hasIncoming && !retryTriggered) {
 				retryTriggered = true;
 				log && log(`no data within ${FIRST_BYTE_TIMEOUT}ms, triggering retry`);
+				try { remoteSocket.close(); } catch (_) {}
 				retry();
 			}
 		}, FIRST_BYTE_TIMEOUT);
@@ -274,6 +275,10 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 	// 1、先尝试直连
 	try {
 		const tcp = await connectAndWrite(headerInfo?.addressRemote, headerInfo?.portRemote);
+		tcp.closed.catch(() => { }).finally(() => {
+			// 只有当前 socket 仍是活跃连接时才关闭 WebSocket
+			if (remoteSocketWrapper.value === tcp) safeCloseWebSocket(ws);
+		});
 		// 2、再把读写流桥接（直连无数据时触发 retry）
 		remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
 	} catch (err) {
