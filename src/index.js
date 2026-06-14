@@ -230,10 +230,23 @@ async function remoteSocketToWS(remoteSocket, ws, retry, responseHeader = null, 
 		firstByteTimer = null;
 	}
 
-	// 若目标服务器根本没有返回数据，尝试走代理（走 retry 逻辑）
-	if (!hasIncoming && !retryTriggered && retry) {
+	// 统一出口：根据是否有数据决定关闭 WS 还是重试
+	if (retryTriggered) {
+		// timeout 已触发 retry，不做额外处理
+		return;
+	}
+	if (hasIncoming) {
+		// 有数据返回，传输完成，关闭 WebSocket
+		log && log("data transfer complete, closing WebSocket");
+		safeCloseWebSocket(ws);
+	} else if (retry) {
+		// 无数据，触发代理重试
 		log && log("no data from remote, retrying via proxy");
 		retry();
+	} else {
+		// 无数据且无法重试，关闭 WebSocket
+		log && log("no data and no retry available, closing WebSocket");
+		safeCloseWebSocket(ws);
 	}
 }
 
@@ -258,12 +271,8 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 		log(`retry ${3 - retryRemaining}/3 via proxy ${proxyInfo.hostname}:${headerInfo?.portRemote}`);
 		try {
 			const tcp = await connectAndWrite(proxyInfo.hostname, headerInfo?.portRemote);
-			tcp.closed.catch(() => { }).finally(() => {
-				// 只有当前 socket 仍是活跃连接时才关闭 WebSocket
-				if (remoteSocketWrapper.value === tcp) safeCloseWebSocket(ws);
-			});
 			// 还有剩余重试次数则继续传递 retry，否则传 null 停止重试
-			remoteSocketToWS(tcp, ws, retryRemaining > 0 ? retry : null, headerInfo?.responseHeader, log);
+			await remoteSocketToWS(tcp, ws, retryRemaining > 0 ? retry : null, headerInfo?.responseHeader, log);
 		} catch (err) {
 			// 代理 TCP 握手也失败，继续尝试下一次重试
 			log(`proxy connect failed: ${err.message}, retries left: ${retryRemaining}`);
@@ -275,12 +284,8 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 	// 1、先尝试直连
 	try {
 		const tcp = await connectAndWrite(headerInfo?.addressRemote, headerInfo?.portRemote);
-		tcp.closed.catch(() => { }).finally(() => {
-			// 只有当前 socket 仍是活跃连接时才关闭 WebSocket
-			if (remoteSocketWrapper.value === tcp) safeCloseWebSocket(ws);
-		});
 		// 2、再把读写流桥接（直连无数据时触发 retry）
-		remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
+		await remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
 	} catch (err) {
 		// 直连 TCP 握手失败（SYN 被封锁等），直接走代理重试
 		log(`direct connect failed: ${err.message}, retrying via proxy`);
