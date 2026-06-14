@@ -272,7 +272,7 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 		try {
 			const tcp = await connectAndWrite(proxyInfo.hostname, headerInfo?.portRemote);
 			// 还有剩余重试次数则继续传递 retry，否则传 null 停止重试
-			await remoteSocketToWS(tcp, ws, retryRemaining > 0 ? retry : null, headerInfo?.responseHeader, log);
+			remoteSocketToWS(tcp, ws, retryRemaining > 0 ? retry : null, headerInfo?.responseHeader, log);
 		} catch (err) {
 			// 代理 TCP 握手也失败，继续尝试下一次重试
 			log(`proxy connect failed: ${err.message}, retries left: ${retryRemaining}`);
@@ -285,7 +285,7 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 	try {
 		const tcp = await connectAndWrite(headerInfo?.addressRemote, headerInfo?.portRemote);
 		// 2、再把读写流桥接（直连无数据时触发 retry）
-		await remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
+		remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
 	} catch (err) {
 		// 直连 TCP 握手失败（SYN 被封锁等），直接走代理重试
 		log(`direct connect failed: ${err.message}, retrying via proxy`);
