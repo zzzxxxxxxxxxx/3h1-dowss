@@ -10,6 +10,16 @@ const WS_READY_STATE_CLOSING = 2;
 // DNS over HTTPS 服务地址
 const DOH_SERVER = 'https://1.1.1.1/dns-query';
 
+// 首字节超时：直连/代理连接后若在此时间内无数据返回，触发 retry
+const FIRST_BYTE_TIMEOUT = 3500;
+
+// VLESS 协议常量
+const ADDR_TYPE_IPV4 = 1;
+const ADDR_TYPE_DOMAIN = 2;
+const ADDR_TYPE_IPV6 = 3;
+const COMMAND_TCP = 1;
+const COMMAND_UDP = 2;
+
 /* ---------- UUID / Base64 工具函数 ---------- */
 
 function isValidUUID(uuid) {
@@ -82,30 +92,32 @@ function parseSse1vHeader(buffer, userIDUint8Array) {
 	const optLength = view[17];
 	let pos = 18 + optLength + 1;
 
-	// 命令类型：1=TCP, 2=UDP
+	// 命令类型：TCP / UDP
 	const command = view[18 + optLength];
-	const isUDP = command === 2;
+	const isUDP = command === COMMAND_UDP;
 
 	const port = (view[pos] << 8) | view[pos + 1];
 	pos += 2;
 
 	const addrType = view[pos++];
 	let address = "";
-	if (addrType === 1) {
+	if (addrType === ADDR_TYPE_IPV4) {
 		// IPv4
 		address = `${view[pos++]}.${view[pos++]}.${view[pos++]}.${view[pos++]}`;
-	} else if (addrType === 2) {
+	} else if (addrType === ADDR_TYPE_DOMAIN) {
 		// 域名
 		const len = view[pos++];
 		address = textDecoder.decode(view.subarray(pos, pos + len));
 		pos += len;
-	} else if (addrType === 3) {
-		// IPv6
+	} else if (addrType === ADDR_TYPE_IPV6) {
+		// IPv6：使用 DataView 一次性读取 16 字节
+		const dv = new DataView(buffer, pos, 16);
 		const parts = [];
-		for (let i = 0; i < 8; ++i, pos += 2) {
-			parts.push(((view[pos] << 8) | view[pos + 1]).toString(16));
+		for (let i = 0; i < 8; ++i) {
+			parts.push(dv.getUint16(i * 2).toString(16));
 		}
 		address = parts.join(":");
+		pos += 16;
 	} else {
 		return { hasError: true, message: `Invalid address type ${addrType}` };
 	}
@@ -124,6 +136,7 @@ function parseSse1vHeader(buffer, userIDUint8Array) {
 /* ---------- 读取 WebSocket 为 ReadableStream ---------- */
 function makeReadableWebSocketStream(ws, earlyDataHeader, log) {
 	let cancelled = false;
+	ws.binaryType = 'arraybuffer';
 	const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
 	const stream = new ReadableStream({
 		start(controller) {
@@ -155,13 +168,32 @@ function makeReadableWebSocketStream(ws, earlyDataHeader, log) {
 /* ---------- 将 TCP Socket 数据写回 WebSocket ---------- */
 async function remoteSocketToWS(remoteSocket, ws, retry, responseHeader = null, log = null) {
 	let hasIncoming = false;
+	let retryTriggered = false;
 	let firstChunk = responseHeader instanceof Uint8Array && responseHeader.length > 0;
+
+	// 首字节超时定时器：指定时间内无数据则强制关闭 socket 触发 retry
+	let firstByteTimer = null;
+	if (retry) {
+		firstByteTimer = setTimeout(() => {
+			if (!hasIncoming && !retryTriggered) {
+				retryTriggered = true;
+				log && log(`no data within ${FIRST_BYTE_TIMEOUT}ms, triggering retry`);
+				retry();
+			}
+		}, FIRST_BYTE_TIMEOUT);
+	}
 
 	await remoteSocket.readable
 		.pipeTo(
 			new WritableStream({
 				async write(chunk, controller) {
-					hasIncoming = true;
+					if (!hasIncoming) {
+						hasIncoming = true;
+						if (firstByteTimer) {
+							clearTimeout(firstByteTimer);
+							firstByteTimer = null;
+						}
+					}
 					if (ws.readyState !== WS_READY_STATE_OPEN) {
 						controller.error("WebSocket not open");
 						return;
@@ -185,14 +217,20 @@ async function remoteSocketToWS(remoteSocket, ws, retry, responseHeader = null, 
 		)
 		.catch((e) => {
 			console.error("remoteSocketToWS error:", e);
-			// 还有 retry 机会时不关闭 WebSocket
-			if (!retry) {
+			// 已经触发 retry 时不要关闭 WebSocket（retry 会重新挂载新 socket）
+			if (!retry && !retryTriggered) {
 				safeCloseWebSocket(ws);
 			}
 		});
 
+	// 清理定时器
+	if (firstByteTimer) {
+		clearTimeout(firstByteTimer);
+		firstByteTimer = null;
+	}
+
 	// 若目标服务器根本没有返回数据，尝试走代理（走 retry 逻辑）
-	if (!hasIncoming && retry) {
+	if (!hasIncoming && !retryTriggered && retry) {
 		log && log("no data from remote, retrying via proxy");
 		retry();
 	}
@@ -211,18 +249,38 @@ async function handleTCPOutBound(remoteSocketWrapper, headerInfo, proxyInfo, ws,
 		return tcp;
 	}
 
-	// 代理重试：直连失败时走 ProxyIP，端口使用目标端口而非固定端口
+	// 代理重试：直连失败时走 ProxyIP，最多重试 3 次
+	let retryRemaining = 3;
 	async function retry() {
-		if (!proxyInfo) return;
-		const tcp = await connectAndWrite(proxyInfo.hostname, headerInfo?.portRemote);
-		tcp.closed.catch(() => { }).finally(() => safeCloseWebSocket(ws));
-		remoteSocketToWS(tcp, ws, null, headerInfo?.responseHeader, log);
+		if (!proxyInfo || retryRemaining <= 0) return;
+		retryRemaining--;
+		log(`retry ${3 - retryRemaining}/3 via proxy ${proxyInfo.hostname}:${headerInfo?.portRemote}`);
+		try {
+			const tcp = await connectAndWrite(proxyInfo.hostname, headerInfo?.portRemote);
+			tcp.closed.catch(() => { }).finally(() => {
+				// 只有当前 socket 仍是活跃连接时才关闭 WebSocket
+				if (remoteSocketWrapper.value === tcp) safeCloseWebSocket(ws);
+			});
+			// 还有剩余重试次数则继续传递 retry，否则传 null 停止重试
+			remoteSocketToWS(tcp, ws, retryRemaining > 0 ? retry : null, headerInfo?.responseHeader, log);
+		} catch (err) {
+			// 代理 TCP 握手也失败，继续尝试下一次重试
+			log(`proxy connect failed: ${err.message}, retries left: ${retryRemaining}`);
+			if (retryRemaining > 0) await retry();
+			else safeCloseWebSocket(ws);
+		}
 	}
 
 	// 1、先尝试直连
-	const tcp = await connectAndWrite(headerInfo?.addressRemote, headerInfo?.portRemote);
-	// 2、再把读写流桥接
-	remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
+	try {
+		const tcp = await connectAndWrite(headerInfo?.addressRemote, headerInfo?.portRemote);
+		// 2、再把读写流桥接（直连无数据时触发 retry）
+		remoteSocketToWS(tcp, ws, retry, headerInfo?.responseHeader, log);
+	} catch (err) {
+		// 直连 TCP 握手失败（SYN 被封锁等），直接走代理重试
+		log(`direct connect failed: ${err.message}, retrying via proxy`);
+		await retry();
+	}
 }
 
 /* ---------- UDP DNS 代理（端口 53 → DoH） ---------- */
